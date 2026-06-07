@@ -20,27 +20,21 @@
 <body>
 <div id="root"></div>
 
-<!-- PWA: icon + manifest, all inline — no extra files needed -->
 <script>
 (function () {
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#08080f"/><rect x="2" y="2" width="96" height="96" rx="20" fill="none" stroke="#7c3aed" stroke-width="1.5" opacity="0.4"/><rect x="38" y="18" width="24" height="36" rx="12" fill="#7c3aed"/><path d="M26 50 Q26 72 50 72 Q74 72 74 50" stroke="#a78bfa" stroke-width="3.5" fill="none" stroke-linecap="round"/><line x1="50" y1="72" x2="50" y2="82" stroke="#a78bfa" stroke-width="3.5" stroke-linecap="round"/><line x1="38" y1="82" x2="62" y2="82" stroke="#a78bfa" stroke-width="3.5" stroke-linecap="round"/></svg>';
-  var iconUrl = 'data:image/svg+xml,' + encodeURIComponent(svg);
+  var iu = 'data:image/svg+xml,' + encodeURIComponent(svg);
   var add = function (rel, href, type) { var l = document.createElement('link'); l.rel = rel; l.href = href; if (type) l.type = type; document.head.appendChild(l); };
-  add('icon', iconUrl, 'image/svg+xml');
-  add('apple-touch-icon', iconUrl);
-  var manifest = { name: 'Voice to Calendar', short_name: 'Voice Cal', start_url: '/', display: 'standalone', background_color: '#08080f', theme_color: '#08080f', icons: [{ src: iconUrl, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }] };
-  var blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-  add('manifest', URL.createObjectURL(blob));
+  add('icon', iu, 'image/svg+xml'); add('apple-touch-icon', iu);
+  var m = { name: 'Voice to Calendar', short_name: 'Voice Cal', start_url: '/', display: 'standalone', background_color: '#08080f', theme_color: '#08080f', icons: [{ src: iu, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }] };
+  add('manifest', URL.createObjectURL(new Blob([JSON.stringify(m)], { type: 'application/manifest+json' })));
 })();
 </script>
 
-<!-- App -->
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useEffect } = React;
-
 const API = "https://api.anthropic.com/v1/messages";
 
-// ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
   bg:"#08080f", surf:"#0d0d1a", card:"#111120", cardHov:"#161628",
   border:"rgba(255,255,255,0.06)", borderMd:"rgba(255,255,255,0.12)",
@@ -51,19 +45,19 @@ const C = {
 };
 
 const CSS = `
-  .vc-card:hover  { background:${C.cardHov}!important; border-color:${C.borderMd}!important; }
-  .vc-action:hover{ border-color:${C.borderMd}!important; color:${C.t1}!important; }
-  .vc-tab:hover   { color:${C.t1}!important; }
-  .vc-fab:hover   { box-shadow:0 0 30px ${C.accGlow},0 0 60px ${C.accDim}!important; transform:scale(1.07)!important; }
-  .vc-fab:active  { transform:scale(0.95)!important; }
-  .vc-card { animation:fade-up .18s ease; }
-  .ifield:focus   { border-color:${C.acc}!important; outline:none; }
-  ::-webkit-scrollbar { width:3px; }
-  ::-webkit-scrollbar-thumb { background:${C.t3}; border-radius:4px; }
-  @keyframes spin        { to{transform:rotate(360deg)} }
-  @keyframes pulse-ring  { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(1.7);opacity:0} }
-  @keyframes fade-up     { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes blink       { 0%,100%{opacity:1} 50%{opacity:.2} }
+  .vc-card { animation: fade-up .18s ease; cursor: pointer; }
+  .vc-card:hover { background: ${C.cardHov} !important; }
+  .vc-tab:hover { color: ${C.t1} !important; }
+  .vc-fab:hover { box-shadow: 0 0 30px ${C.accGlow}, 0 0 60px ${C.accDim} !important; transform: scale(1.07) !important; }
+  .vc-fab:active { transform: scale(0.95) !important; }
+  .ifield:focus { border-color: ${C.acc} !important; outline: none; }
+  input[type="date"], input[type="time"] { color-scheme: dark; }
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: ${C.t3}; border-radius: 4px; }
+  @keyframes spin       { to { transform: rotate(360deg); } }
+  @keyframes pulse-ring { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(1.7);opacity:0} }
+  @keyframes fade-up    { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes blink      { 0%,100%{opacity:1} 50%{opacity:.2} }
 `;
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
@@ -71,16 +65,22 @@ const todayStr    = () => new Date().toISOString().split("T")[0];
 const tomorrowStr = () => new Date(Date.now() + 864e5).toISOString().split("T")[0];
 const maskKey     = k => k ? `sk-ant-...${k.slice(-6)}` : "—";
 
-function classifyPeriod(dueDate) {
+// FIX: classify by recurrence first, then by due date
+function classifyPeriod(dueDate, recurrence) {
+  if (recurrence && recurrence !== "none") {
+    if (recurrence === "daily")   return "today";
+    if (recurrence === "weekly")  return "week";
+    if (recurrence === "monthly") return "month";
+  }
   if (!dueDate) return "inbox";
   const now = new Date(), due = new Date(dueDate + "T12:00:00");
   const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (due < d0) return "today";
-  if (due < new Date(d0.getTime() + 864e5)) return "today";
+  if (due < new Date(d0.getTime() + 864e5))     return "today";
   if (due < new Date(d0.getTime() + 7 * 864e5)) return "week";
   if (due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear()) return "month";
   return "inbox";
 }
+
 const isLate = n => !!n.dueDate && !n.completed && new Date(n.dueDate + "T23:59:59") < new Date();
 
 function fmtDue(dueDate, dueTime) {
@@ -116,89 +116,188 @@ function gcalURL({ title, emoji, dueDate, dueTime, recurrence }) {
   return `https://calendar.google.com/calendar/render?${q}`;
 }
 
+// ── Sheet wrapper ─────────────────────────────────────────────────────────────
+function Sheet({ onClose, children }) {
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{width:"100%",maxWidth:440,background:C.surf,borderRadius:"16px 16px 0 0",padding:"0 20px 40px",maxHeight:"88dvh",overflowY:"auto",border:`1px solid ${C.border}`,borderBottom:"none"}}>
+        <div style={{width:32,height:3,borderRadius:2,background:C.t3,margin:"14px auto 24px"}}/>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const Label = ({children}) => <p style={{fontSize:10,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:7}}>{children}</p>;
+const iSt = {width:"100%",padding:"11px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.t1,fontSize:14,boxSizing:"border-box",transition:"border-color .15s"};
+
 // ── SetupScreen ───────────────────────────────────────────────────────────────
 function SetupScreen({ onSave }) {
   const [k, setK] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    if (!k.trim()) return;
+    setSaved(true);
+    setTimeout(() => onSave(k.trim()), 900);
+  };
+
   return (
     <div style={{maxWidth:440,margin:"0 auto",padding:"72px 24px 40px",minHeight:"100dvh",background:C.bg}}>
       <div style={{marginBottom:40}}>
         <div style={{width:52,height:52,borderRadius:14,background:C.accDim,border:`1px solid ${C.acc}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:20}}>🎙️</div>
         <h1 style={{fontSize:22,fontWeight:700,letterSpacing:"-0.5px",background:`linear-gradient(90deg,${C.t1},${C.accL})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:8}}>Voice Cal</h1>
-        <p style={{fontSize:14,color:C.t2,lineHeight:1.6}}>AI-powered notes & task planner.<br/>Your data stays on your device.</p>
+        <p style={{fontSize:14,color:C.t2,lineHeight:1.6}}>AI-powered notes & task planner.</p>
       </div>
       <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:20,border:`1px solid ${C.border}`}}>
-        <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Anthropic API Key required</p>
-        <p style={{fontSize:13,color:C.t2,lineHeight:1.6,marginBottom:10}}>Uses Claude AI to understand your notes. Get a free key at:</p>
+        <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Anthropic API Key</p>
+        <p style={{fontSize:13,color:C.t2,lineHeight:1.6,marginBottom:10}}>Get a free key at:</p>
         <a href="https://console.anthropic.com/keys" target="_blank" rel="noreferrer" style={{fontSize:13,color:C.accL,fontWeight:600,textDecoration:"none"}}>console.anthropic.com/keys ↗</a>
-        <p style={{fontSize:11,color:C.t3,marginTop:8}}>Key is stored locally on this device only.</p>
+        <p style={{fontSize:11,color:C.t3,marginTop:8}}>Saved on this device. You won't be asked again.</p>
       </div>
       <input type="password" className="ifield" placeholder="sk-ant-api03-..." value={k}
-        onChange={e=>setK(e.target.value)}
-        onKeyDown={e=>e.key==="Enter"&&k.trim()&&onSave(k.trim())}
-        style={{width:"100%",padding:"12px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.t1,fontSize:14,marginBottom:12}}
+        onChange={e=>setK(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSave()}
+        style={{...iSt,marginBottom:12}}
       />
-      <button onClick={()=>k.trim()&&onSave(k.trim())} style={{width:"100%",padding:13,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:"0.3px"}}>
-        Continue →
+      <button onClick={handleSave} style={{width:"100%",padding:13,borderRadius:8,background:saved?C.green:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",transition:"background .3s"}}>
+        {saved ? "✓ Key saved — opening app…" : "Save & Continue →"}
       </button>
     </div>
   );
 }
 
 // ── NoteCard ──────────────────────────────────────────────────────────────────
-function NoteCard({ note, onToggle, onDelete, onCalendar }) {
+function NoteCard({ note, onToggle, onDelete, onCalendar, onEdit }) {
   const late = isLate(note), due = fmtDue(note.dueDate, note.dueTime), isTask = note.type === "task";
   return (
-    <div className="vc-card" style={{background:C.card,borderRadius:10,padding:"12px 14px",marginBottom:5,border:`1px solid ${C.border}`,borderLeft:late?`2px solid ${C.red}`:`1px solid ${C.border}`,opacity:note.completed?0.38:1,transition:"all .15s"}}>
+    <div className="vc-card" onClick={()=>onEdit(note)} style={{
+      background:C.card, borderRadius:10, padding:"13px 14px", marginBottom:6,
+      border:`1px solid ${C.border}`, borderLeft:late?`2px solid ${C.red}`:`1px solid ${C.border}`,
+      opacity:note.completed?0.4:1, transition:"all .15s",
+    }}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         {isTask ? (
-          <button onClick={()=>onToggle(note.id)} style={{width:17,height:17,borderRadius:4,flexShrink:0,border:`1.5px solid ${note.completed?C.green:C.t3}`,background:note.completed?C.green:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#000",fontSize:10,fontWeight:700,transition:"all .15s"}}>
-            {note.completed&&"✓"}
-          </button>
+          <button onClick={e=>{e.stopPropagation();onToggle(note.id);}} style={{
+            width:20,height:20,borderRadius:5,flexShrink:0,
+            border:`1.5px solid ${note.completed?C.green:C.t3}`,
+            background:note.completed?C.green:"transparent",
+            cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+            color:"#000",fontSize:11,fontWeight:700,transition:"all .15s"
+          }}>{note.completed&&"✓"}</button>
         ) : (
-          <span style={{fontSize:15,flexShrink:0,opacity:.85}}>{note.emoji}</span>
+          <span style={{fontSize:18,flexShrink:0}}>{note.emoji}</span>
         )}
+
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
-            {isTask && <span style={{fontSize:13,flexShrink:0,opacity:.75}}>{note.emoji}</span>}
-            <span style={{fontSize:14,fontWeight:500,letterSpacing:"-0.15px",flex:1,color:note.completed?C.t2:C.t1,textDecoration:note.completed?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note.title}</span>
-            {note.recurrence && note.recurrence !== "none" && (
-              <span style={{fontSize:9,color:C.accL,background:C.accDim,padding:"2px 6px",borderRadius:4,fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase",flexShrink:0}}>{note.recurrence}</span>
-            )}
+            {isTask && <span style={{fontSize:14,flexShrink:0,opacity:.8}}>{note.emoji}</span>}
+            <span style={{fontSize:14,fontWeight:500,letterSpacing:"-0.1px",flex:1,color:note.completed?C.t2:C.t1,textDecoration:note.completed?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note.title}</span>
+            {note.recurrence&&note.recurrence!=="none"&&<span style={{fontSize:9,color:C.accL,background:C.accDim,padding:"2px 6px",borderRadius:4,fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase",flexShrink:0}}>{note.recurrence}</span>}
           </div>
-          {due && (
-            <p style={{margin:"4px 0 0",fontSize:11,color:late?C.red:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",display:"flex",alignItems:"center",gap:4}}>
-              {late && <span style={{animation:"blink 1.5s infinite",fontSize:8}}>●</span>}
-              {due}
-            </p>
-          )}
+          {due&&<p style={{margin:"4px 0 0",fontSize:11,color:late?C.red:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",display:"flex",alignItems:"center",gap:4}}>
+            {late&&<span style={{animation:"blink 1.5s infinite",fontSize:8}}>●</span>}{due}
+          </p>}
         </div>
-        <div style={{display:"flex",gap:3,flexShrink:0}}>
+
+        {/* Actions — always visible */}
+        <div style={{display:"flex",gap:4,flexShrink:0}}>
           {note.dueDate && !note.completed && (
-            <button className="vc-action" onClick={()=>onCalendar(note)} title="Add to calendar" style={{width:27,height:27,borderRadius:6,background:"transparent",border:`1px solid ${note.addedToCalendar?C.green:C.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:note.addedToCalendar?C.green:C.t2,fontSize:12,transition:"all .15s"}}>
-              {note.addedToCalendar?"✓":"↗"}
+            <button onClick={e=>{e.stopPropagation();onCalendar(note);}} title="Add to calendar" style={{
+              height:32,padding:"0 10px",borderRadius:7,
+              background:note.addedToCalendar?C.greenDim:C.accDim,
+              border:`1px solid ${note.addedToCalendar?C.green:C.acc}`,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:5,
+              color:note.addedToCalendar?C.green:C.accL,fontSize:12,fontWeight:600,
+              whiteSpace:"nowrap",transition:"all .15s"
+            }}>
+              {note.addedToCalendar?"✓ Added":"📅 Cal"}
             </button>
           )}
-          <button className="vc-action" onClick={()=>onDelete(note.id)} style={{width:27,height:27,borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.t2,fontSize:16,lineHeight:1,transition:"all .15s"}}>×</button>
+          <button onClick={e=>{e.stopPropagation();onDelete(note.id);}} style={{width:32,height:32,borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.t2,fontSize:16,lineHeight:1}}>×</button>
         </div>
       </div>
     </div>
   );
 }
 
+// ── EditModal ─────────────────────────────────────────────────────────────────
+function EditModal({ note, onSave, onClose, onDelete, onCalendar }) {
+  const [title,   setTitle]   = useState(note.title);
+  const [period,  setPeriod]  = useState(note.period);
+  const [dueDate, setDueDate] = useState(note.dueDate || "");
+  const [dueTime, setDueTime] = useState(note.dueTime || "");
+
+  const save = () => { onSave({...note, title:title.trim()||note.title, period, dueDate:dueDate||null, dueTime:dueTime||null}); onClose(); };
+  const canCal = !!(dueDate || note.dueDate);
+
+  return (
+    <Sheet onClose={onClose}>
+      <Label>Edit</Label>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,padding:"12px 14px",background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+        <span style={{fontSize:24}}>{note.emoji}</span>
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="ifield"
+          onKeyDown={e=>e.key==="Enter"&&save()}
+          style={{flex:1,padding:"8px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.t1,fontSize:15,fontWeight:500}}
+        />
+      </div>
+
+      <Label>Move to tab</Label>
+      <div style={{display:"flex",gap:5,marginBottom:20}}>
+        {["today","week","month","inbox"].map(p=>(
+          <button key={p} onClick={()=>setPeriod(p)} style={{
+            flex:1,padding:"9px 4px",borderRadius:8,fontSize:11,fontWeight:700,
+            background:period===p?C.acc:"transparent",color:period===p?"#fff":C.t2,
+            border:`1px solid ${period===p?C.acc:C.border}`,cursor:"pointer",
+            textTransform:"uppercase",letterSpacing:"0.4px",transition:"all .15s"
+          }}>{p}</button>
+        ))}
+      </div>
+
+      <Label>Due date</Label>
+      <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} className="ifield" style={{...iSt,marginBottom:12}}/>
+
+      <Label>Time (optional)</Label>
+      <input type="time" value={dueTime} onChange={e=>setDueTime(e.target.value)} className="ifield" style={{...iSt,marginBottom:20}}/>
+
+      {canCal && (
+        <>
+          <Label>Calendar</Label>
+          <div style={{display:"flex",gap:8,marginBottom:20}}>
+            <button onClick={()=>{ const n2={...note,title,dueDate:dueDate||note.dueDate,dueTime:dueTime||note.dueTime}; onCalendar(n2); onClose(); }} style={{flex:1,padding:11,borderRadius:8,background:C.accDim,border:`1px solid ${C.acc}`,color:C.accL,fontWeight:600,fontSize:13,cursor:"pointer"}}>📥 Download .ics</button>
+            <a href={gcalURL({...note,title,dueDate:dueDate||note.dueDate,dueTime:dueTime||note.dueTime})} target="_blank" rel="noreferrer" style={{flex:1,display:"block",textDecoration:"none"}}>
+              <button style={{width:"100%",padding:11,borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.t1,fontWeight:600,fontSize:13,cursor:"pointer"}}>📅 Google Cal</button>
+            </a>
+          </div>
+        </>
+      )}
+
+      <button onClick={save} style={{width:"100%",padding:13,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:8}}>Save changes</button>
+      <button onClick={()=>{onDelete(note.id);onClose();}} style={{width:"100%",padding:11,borderRadius:8,background:"transparent",color:C.red,border:`1px solid ${C.redDim}`,fontWeight:600,fontSize:13,cursor:"pointer"}}>Delete</button>
+    </Sheet>
+  );
+}
+
 // ── AddModal ──────────────────────────────────────────────────────────────────
+const LANGS = [
+  { code:"en-US", label:"EN" },
+  { code:"hy-AM", label:"ՀՅ" },
+  { code:"ru-RU", label:"RU" },
+];
+
 function AddModal({ onClose, onSave, apiKey }) {
   const [phase, setPhase] = useState("input");
   const [mode,  setMode]  = useState("voice");
+  const [lang,  setLang]  = useState("en-US");
   const [transcript, setTranscript] = useState("");
-  const [txt, setTxt] = useState("");
+  const [txt, setTxt]     = useState("");
   const [pending, setPending] = useState(null);
-  const [err, setErr] = useState("");
+  const [err, setErr]     = useState("");
   const recRef = useRef(null), txtRef = useRef("");
 
   const startRec = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setErr("Voice requires Chrome or Edge."); return; }
-    const r = new SR(); r.continuous=true; r.interimResults=true; r.lang="en-US";
+    const r = new SR(); r.continuous=true; r.interimResults=true; r.lang=lang;
     txtRef.current="";
     r.onresult = e => { let t=""; for(let i=0;i<e.results.length;i++) t+=e.results[i][0].transcript; txtRef.current=t; setTranscript(t); };
     r.onend = () => txtRef.current.trim() ? parse(txtRef.current.trim()) : setPhase("input");
@@ -221,9 +320,14 @@ function AddModal({ onClose, onSave, apiKey }) {
 Today: ${now.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}
 Time: ${now.toTimeString().slice(0,5)} | Tomorrow: ${tomorrowStr()}
 Return: {"title":"string","emoji":"string","type":"task|note","dueDate":"YYYY-MM-DD or null","dueTime":"HH:MM or null","recurrence":"none|daily|weekly|monthly","reminderMinutes":30}
-type=task if deadline/time mentioned (dueDate required), else note (dueDate null).
-today→${todayStr()}, tomorrow→${tomorrowStr()}, recurring no date→${todayStr()}.
-reminderMinutes: 10 habits, 30 appointments, 60 events.`,
+IMPORTANT RULES:
+- type=task if: has deadline, time, OR any recurrence pattern → dueDate MUST be set
+- type=note ONLY if: purely a memo with no timing or recurrence at all
+- Any mention of "daily","every day","weekly","monthly","every week","every month" → type=task, set appropriate recurrence
+- Recurring with no start date → dueDate=${todayStr()}
+- today→${todayStr()}, tomorrow→${tomorrowStr()}
+- reminderMinutes: 10 habits/meds, 30 appointments, 60 events
+- emoji: one fitting emoji`,
           messages:[{role:"user",content:input}]
         })
       });
@@ -236,165 +340,146 @@ reminderMinutes: 10 habits, 30 appointments, 60 events.`,
     } catch(e) { setErr(e.message||"Couldn't parse — try again."); setPhase("input"); }
   };
 
-  const iSt = {width:"100%",padding:"11px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.t1,fontSize:14,boxSizing:"border-box",transition:"border-color .15s"};
-
   return (
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{width:"100%",maxWidth:440,background:C.surf,borderRadius:"16px 16px 0 0",padding:"0 20px 36px",maxHeight:"88dvh",overflowY:"auto",border:`1px solid ${C.border}`,borderBottom:"none"}}>
-        <div style={{width:32,height:3,borderRadius:2,background:C.t3,margin:"14px auto 24px"}}/>
+    <Sheet onClose={onClose}>
+      {phase==="input"&&<>
+        <Label>New entry</Label>
+        {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}`,borderRadius:8,padding:"8px 12px",marginBottom:14}}><p style={{color:C.red,fontSize:13}}>{err}</p></div>}
 
-        {phase==="input"&&<>
-          <p style={{fontSize:11,color:C.t2,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:16}}>New entry</p>
-          {err&&<div style={{background:C.redDim,border:`1px solid ${C.red}`,borderRadius:8,padding:"8px 12px",marginBottom:14}}><p style={{color:C.red,fontSize:13}}>{err}</p></div>}
-          <div style={{display:"flex",gap:4,marginBottom:20,background:C.card,borderRadius:8,padding:3,border:`1px solid ${C.border}`}}>
-            {["voice","text"].map(m=>(
-              <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:"7px 0",borderRadius:6,fontSize:12,fontWeight:600,background:mode===m?C.acc:"transparent",color:mode===m?"#fff":C.t2,border:"none",cursor:"pointer",transition:"all .15s",letterSpacing:"0.3px"}}>
-                {m==="voice"?"🎤 VOICE":"⌨️ TYPE"}
-              </button>
-            ))}
-          </div>
-          {mode==="voice"?(
-            <div style={{textAlign:"center",paddingBottom:8}}>
-              <button onClick={startRec} style={{width:76,height:76,borderRadius:"50%",background:`radial-gradient(circle at 40% 40%,${C.accL},${C.acc})`,border:"none",cursor:"pointer",fontSize:28,marginBottom:14,boxShadow:`0 0 24px ${C.accGlow}`,transition:"all .2s"}}>🎤</button>
-              <p style={{color:C.t2,fontSize:13,marginBottom:20}}>Tap to record</p>
-              <div style={{background:C.card,borderRadius:8,padding:"12px 14px",textAlign:"left",border:`1px solid ${C.border}`}}>
-                <p style={{fontSize:10,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Examples</p>
-                {['"Take my pills at 3 PM daily"','"Meeting tomorrow at 10 AM"','"Remember to call dentist"','"Report due this Friday"'].map(ex=>(
-                  <p key={ex} style={{fontSize:12,color:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",marginTop:5}}>{ex}</p>
-                ))}
-              </div>
-            </div>
-          ):(
-            <>
-              <textarea rows={3} placeholder="Describe your task or note..." value={txt} className="ifield"
-                onChange={e=>setTxt(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),txt.trim()&&parse(txt.trim()))}
-                style={{...iSt,resize:"vertical",marginBottom:12}}
-              />
-              <button onClick={()=>txt.trim()&&parse(txt.trim())} style={{width:"100%",padding:12,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:"0.3px"}}>Parse & add →</button>
-            </>
-          )}
-        </>}
+        <div style={{display:"flex",gap:4,marginBottom:16,background:C.card,borderRadius:8,padding:3,border:`1px solid ${C.border}`}}>
+          {["voice","text"].map(m=><button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:"7px 0",borderRadius:6,fontSize:12,fontWeight:600,background:mode===m?C.acc:"transparent",color:mode===m?"#fff":C.t2,border:"none",cursor:"pointer",letterSpacing:"0.3px"}}>{m==="voice"?"🎤 VOICE":"⌨️ TYPE"}</button>)}
+        </div>
 
-        {phase==="recording"&&(
-          <div style={{textAlign:"center",padding:"36px 0"}}>
-            <div style={{position:"relative",width:76,margin:"0 auto 20px"}}>
-              <div style={{position:"absolute",inset:-16,borderRadius:"50%",border:`2px solid ${C.red}`,animation:"pulse-ring 1.4s ease-out infinite"}}/>
-              <button onClick={stopRec} style={{width:76,height:76,borderRadius:"50%",background:`radial-gradient(circle at 40% 40%,#f87171,${C.red})`,border:"none",cursor:"pointer",fontSize:24,boxShadow:"0 0 24px rgba(244,63,94,.4)"}}>⏹</button>
+        {mode==="voice"?(
+          <div style={{textAlign:"center"}}>
+            {/* Language selector */}
+            <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:20}}>
+              {LANGS.map(l=><button key={l.code} onClick={()=>setLang(l.code)} style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:700,background:lang===l.code?C.acc:"transparent",color:lang===l.code?"#fff":C.t2,border:`1px solid ${lang===l.code?C.acc:C.border}`,cursor:"pointer",letterSpacing:"0.5px",transition:"all .15s"}}>{l.label}</button>)}
             </div>
-            <p style={{color:C.red,fontWeight:700,fontSize:11,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:16,animation:"blink 1.5s infinite"}}>● LISTENING</p>
-            {transcript&&<div style={{background:C.card,borderRadius:8,padding:"12px 14px",border:`1px solid ${C.border}`,textAlign:"left"}}><p style={{fontSize:13,color:C.t1,fontStyle:"italic",lineHeight:1.6}}>"{transcript}"</p></div>}
+            <button onClick={startRec} style={{width:80,height:80,borderRadius:"50%",background:`radial-gradient(circle at 40% 40%,${C.accL},${C.acc})`,border:"none",cursor:"pointer",fontSize:30,marginBottom:14,boxShadow:`0 0 24px ${C.accGlow}`,transition:"all .2s"}}>🎤</button>
+            <p style={{color:C.t2,fontSize:13,marginBottom:20}}>Tap to record</p>
+            <div style={{background:C.card,borderRadius:8,padding:"12px 14px",textAlign:"left",border:`1px solid ${C.border}`}}>
+              <p style={{fontSize:10,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Examples</p>
+              {['"Take my pills at 3 PM daily"','"Meeting tomorrow at 10 AM"','"Pay communal bills monthly"','"Report due this Friday"'].map(ex=>(
+                <p key={ex} style={{fontSize:12,color:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",marginTop:5}}>{ex}</p>
+              ))}
+            </div>
           </div>
+        ):(
+          <>
+            <textarea rows={3} placeholder="Describe your task or note..." value={txt} className="ifield"
+              onChange={e=>setTxt(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),txt.trim()&&parse(txt.trim()))}
+              style={{...iSt,resize:"vertical",marginBottom:12}}
+            />
+            <button onClick={()=>txt.trim()&&parse(txt.trim())} style={{width:"100%",padding:12,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>Parse & add →</button>
+          </>
         )}
+      </>}
 
-        {phase==="parsing"&&(
-          <div style={{textAlign:"center",padding:"60px 0"}}>
-            <div style={{width:32,height:32,border:`2px solid ${C.t3}`,borderTopColor:C.acc,borderRadius:"50%",animation:"spin .7s linear infinite",margin:"0 auto 16px"}}/>
-            <p style={{color:C.t2,fontSize:11,letterSpacing:"0.8px",textTransform:"uppercase"}}>Parsing note…</p>
+      {phase==="recording"&&(
+        <div style={{textAlign:"center",padding:"36px 0"}}>
+          <div style={{position:"relative",width:80,margin:"0 auto 20px"}}>
+            <div style={{position:"absolute",inset:-16,borderRadius:"50%",border:`2px solid ${C.red}`,animation:"pulse-ring 1.4s ease-out infinite"}}/>
+            <button onClick={stopRec} style={{width:80,height:80,borderRadius:"50%",background:`radial-gradient(circle at 40% 40%,#f87171,${C.red})`,border:"none",cursor:"pointer",fontSize:24,boxShadow:"0 0 24px rgba(244,63,94,.4)"}}>⏹</button>
           </div>
-        )}
+          <p style={{color:C.red,fontWeight:700,fontSize:11,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:16,animation:"blink 1.5s infinite"}}>● LISTENING — {LANGS.find(l=>l.code===lang)?.label}</p>
+          {transcript&&<div style={{background:C.card,borderRadius:8,padding:"12px 14px",border:`1px solid ${C.border}`,textAlign:"left"}}><p style={{fontSize:13,color:C.t1,fontStyle:"italic",lineHeight:1.6}}>"{transcript}"</p></div>}
+        </div>
+      )}
 
-        {phase==="confirm"&&pending&&<>
-          <p style={{fontSize:11,color:C.t2,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:16}}>Confirm</p>
-          <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:16,border:`1px solid ${C.border}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontSize:26}}>{pending.emoji}</span>
-              <div>
-                <p style={{fontWeight:600,fontSize:15,color:C.t1,letterSpacing:"-0.2px"}}>{pending.title}</p>
-                <p style={{fontSize:11,color:C.accL,marginTop:3,fontWeight:600,letterSpacing:"0.5px",textTransform:"uppercase"}}>
-                  {pending.type==="task"?"Task":"Note"}{pending.recurrence&&pending.recurrence!=="none"&&` · ${pending.recurrence}`}
-                </p>
-              </div>
+      {phase==="parsing"&&(
+        <div style={{textAlign:"center",padding:"60px 0"}}>
+          <div style={{width:32,height:32,border:`2px solid ${C.t3}`,borderTopColor:C.acc,borderRadius:"50%",animation:"spin .7s linear infinite",margin:"0 auto 16px"}}/>
+          <p style={{color:C.t2,fontSize:11,letterSpacing:"0.8px",textTransform:"uppercase"}}>Parsing note…</p>
+        </div>
+      )}
+
+      {phase==="confirm"&&pending&&<>
+        <Label>Confirm</Label>
+        <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:16,border:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontSize:26}}>{pending.emoji}</span>
+            <div>
+              <p style={{fontWeight:600,fontSize:15,color:C.t1,letterSpacing:"-0.2px"}}>{pending.title}</p>
+              <p style={{fontSize:11,color:C.accL,marginTop:3,fontWeight:600,letterSpacing:"0.5px",textTransform:"uppercase"}}>
+                {pending.type==="task"?"Task":"Note"}{pending.recurrence&&pending.recurrence!=="none"&&` · ${pending.recurrence}`}
+              </p>
             </div>
-            {pending.dueDate&&[["When",fmtDue(pending.dueDate,pending.dueTime)],["Reminder",`${pending.reminderMinutes} min before`]].map(([lbl,val])=>(
-              <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-                <span style={{fontSize:12,color:C.t2}}>{lbl}</span>
-                <span style={{fontSize:12,color:C.t1,fontFamily:"'SF Mono','Fira Code',monospace"}}>{val}</span>
-              </div>
-            ))}
-            <p style={{marginTop:12,fontSize:11,color:C.t3,fontStyle:"italic",fontFamily:"'SF Mono','Fira Code',monospace"}}>"{pending.originalText}"</p>
           </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setPhase("input")} style={{flex:1,padding:12,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.t2,cursor:"pointer",fontSize:13,fontWeight:600}}>← Redo</button>
-            <button onClick={()=>onSave(pending)} style={{flex:2,padding:12,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:"0.3px"}}>Save ✓</button>
-          </div>
-        </>}
-      </div>
-    </div>
+          {pending.dueDate&&[["When",fmtDue(pending.dueDate,pending.dueTime)],["Reminder",`${pending.reminderMinutes} min before`]].map(([lbl,val])=>(
+            <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontSize:12,color:C.t2}}>{lbl}</span>
+              <span style={{fontSize:12,color:C.t1,fontFamily:"'SF Mono','Fira Code',monospace"}}>{val}</span>
+            </div>
+          ))}
+          <p style={{marginTop:12,fontSize:11,color:C.t3,fontStyle:"italic",fontFamily:"'SF Mono','Fira Code',monospace"}}>"{pending.originalText}"</p>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setPhase("input")} style={{flex:1,padding:12,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.t2,cursor:"pointer",fontSize:13,fontWeight:600}}>← Redo</button>
+          <button onClick={()=>onSave(pending)} style={{flex:2,padding:12,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>Save ✓</button>
+        </div>
+      </>}
+    </Sheet>
   );
 }
 
 // ── CalModal ──────────────────────────────────────────────────────────────────
 function CalModal({ note, onClose, onMarked }) {
   const dl = () => {
-    const blob = new Blob([genICS(note)],{type:"text/calendar;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) { window.location.href=url; }
-    else { const a=document.createElement("a"); a.href=url; a.download=note.title.replace(/\s+/g,"-")+".ics"; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
+    const blob=new Blob([genICS(note)],{type:"text/calendar;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    if(/iPad|iPhone|iPod/.test(navigator.userAgent)){window.location.href=url;}
+    else{const a=document.createElement("a");a.href=url;a.download=note.title.replace(/\s+/g,"-")+".ics";document.body.appendChild(a);a.click();document.body.removeChild(a);}
     setTimeout(()=>URL.revokeObjectURL(url),2000);
     onMarked();
   };
   return (
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{width:"100%",maxWidth:440,background:C.surf,borderRadius:"16px 16px 0 0",padding:"0 20px 36px",border:`1px solid ${C.border}`,borderBottom:"none"}}>
-        <div style={{width:32,height:3,borderRadius:2,background:C.t3,margin:"14px auto 24px"}}/>
-        <p style={{fontSize:11,color:C.t2,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:4}}>Add to calendar</p>
-        <p style={{fontSize:14,color:C.t1,marginBottom:24,fontWeight:500}}>{note.emoji}  {note.title}</p>
-        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
-          <button onClick={dl} style={{width:"100%",padding:13,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:"0.3px"}}>Download .ics file</button>
-          <a href={gcalURL(note)} target="_blank" rel="noreferrer" style={{display:"block",textDecoration:"none"}}>
-            <button style={{width:"100%",padding:13,borderRadius:8,background:"transparent",color:C.t1,border:`1px solid ${C.border}`,fontWeight:600,fontSize:14,cursor:"pointer"}}>Open in Google Calendar ↗</button>
-          </a>
-        </div>
-        <p style={{fontSize:11,color:C.t3,textAlign:"center"}}>Works with Google, Apple, and Outlook</p>
+    <Sheet onClose={onClose}>
+      <Label>Add to calendar</Label>
+      <p style={{fontSize:14,color:C.t1,marginBottom:24,fontWeight:500}}>{note.emoji}  {note.title}</p>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        <button onClick={dl} style={{width:"100%",padding:13,borderRadius:8,background:C.acc,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>📥 Download .ics file</button>
+        <a href={gcalURL(note)} target="_blank" rel="noreferrer" style={{display:"block",textDecoration:"none"}}>
+          <button style={{width:"100%",padding:13,borderRadius:8,background:"transparent",color:C.t1,border:`1px solid ${C.border}`,fontWeight:600,fontSize:14,cursor:"pointer"}}>📅 Open in Google Calendar ↗</button>
+        </a>
       </div>
-    </div>
+      <p style={{fontSize:11,color:C.t3,textAlign:"center"}}>Works with Google, Apple, and Outlook</p>
+    </Sheet>
   );
 }
 
 // ── SettingsModal ─────────────────────────────────────────────────────────────
 function SettingsModal({ apiKey, onClose, onUpdateKey, onClearAll }) {
-  const [newKey, setNewKey] = useState("");
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const handleSave = () => {
-    if (!newKey.trim()) return;
-    onUpdateKey(newKey.trim()); setNewKey(""); setSaved(true);
-    setTimeout(()=>setSaved(false), 2000);
-  };
+  const [newKey, setNewKey] = useState(""), [confirmClear, setConfirmClear] = useState(false), [saved, setSaved] = useState(false);
+  const handleSave = () => { if(!newKey.trim()) return; onUpdateKey(newKey.trim()); setNewKey(""); setSaved(true); setTimeout(()=>setSaved(false),2000); };
   return (
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{width:"100%",maxWidth:440,background:C.surf,borderRadius:"16px 16px 0 0",padding:"0 20px 40px",border:`1px solid ${C.border}`,borderBottom:"none"}}>
-        <div style={{width:32,height:3,borderRadius:2,background:C.t3,margin:"14px auto 24px"}}/>
-        <p style={{fontSize:11,color:C.t2,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:24}}>Settings</p>
-        <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:12,border:`1px solid ${C.border}`}}>
-          <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>API Key</p>
-          <p style={{fontSize:12,color:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",marginBottom:12}}>{maskKey(apiKey)}</p>
-          <input type="password" className="ifield" placeholder="New key: sk-ant-api03-..." value={newKey}
-            onChange={e=>setNewKey(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSave()}
-            style={{width:"100%",padding:"10px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surf,color:C.t1,fontSize:13,marginBottom:8,boxSizing:"border-box"}}
-          />
-          <button onClick={handleSave} style={{width:"100%",padding:10,borderRadius:7,background:saved?C.green:C.acc,color:"#fff",border:"none",fontWeight:600,fontSize:13,cursor:"pointer",transition:"background .3s"}}>
-            {saved?"✓ Saved":"Update key"}
-          </button>
-        </div>
-        <div style={{background:C.card,borderRadius:10,padding:16,border:`1px solid ${C.border}`}}>
-          <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>Data</p>
-          {!confirmClear?(
-            <button onClick={()=>setConfirmClear(true)} style={{width:"100%",padding:10,borderRadius:7,background:"transparent",color:C.red,border:`1px solid ${C.redDim}`,fontWeight:600,fontSize:13,cursor:"pointer"}}>Clear all notes & tasks</button>
-          ):(
-            <div>
-              <p style={{fontSize:13,color:C.t2,marginBottom:12,lineHeight:1.5}}>This will permanently delete all notes. Are you sure?</p>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>setConfirmClear(false)} style={{flex:1,padding:10,borderRadius:7,background:"transparent",color:C.t2,border:`1px solid ${C.border}`,cursor:"pointer",fontWeight:600,fontSize:13}}>Cancel</button>
-                <button onClick={()=>{onClearAll();onClose();}} style={{flex:1,padding:10,borderRadius:7,background:C.red,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Delete all</button>
-              </div>
-            </div>
-          )}
-        </div>
-        <p style={{fontSize:10,color:C.t3,textAlign:"center",marginTop:20,letterSpacing:"0.5px"}}>VOICE CAL  v1.0</p>
+    <Sheet onClose={onClose}>
+      <Label>Settings</Label>
+      <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:12,border:`1px solid ${C.border}`}}>
+        <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>API Key</p>
+        <p style={{fontSize:12,color:C.t2,fontFamily:"'SF Mono','Fira Code',monospace",marginBottom:12}}>{maskKey(apiKey)}</p>
+        <input type="password" className="ifield" placeholder="New key: sk-ant-api03-..." value={newKey}
+          onChange={e=>setNewKey(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSave()}
+          style={{...iSt,marginBottom:8}}/>
+        <button onClick={handleSave} style={{width:"100%",padding:10,borderRadius:7,background:saved?C.green:C.acc,color:"#fff",border:"none",fontWeight:600,fontSize:13,cursor:"pointer",transition:"background .3s"}}>{saved?"✓ Saved":"Update key"}</button>
       </div>
-    </div>
+      <div style={{background:C.card,borderRadius:10,padding:16,border:`1px solid ${C.border}`}}>
+        <p style={{fontSize:11,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:8}}>Data</p>
+        {!confirmClear?(
+          <button onClick={()=>setConfirmClear(true)} style={{width:"100%",padding:10,borderRadius:7,background:"transparent",color:C.red,border:`1px solid ${C.redDim}`,fontWeight:600,fontSize:13,cursor:"pointer"}}>Clear all notes & tasks</button>
+        ):(
+          <div>
+            <p style={{fontSize:13,color:C.t2,marginBottom:12,lineHeight:1.5}}>Permanently delete all notes?</p>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setConfirmClear(false)} style={{flex:1,padding:10,borderRadius:7,background:"transparent",color:C.t2,border:`1px solid ${C.border}`,cursor:"pointer",fontWeight:600,fontSize:13}}>Cancel</button>
+              <button onClick={()=>{onClearAll();onClose();}} style={{flex:1,padding:10,borderRadius:7,background:C.red,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Delete all</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <p style={{fontSize:10,color:C.t3,textAlign:"center",marginTop:20,letterSpacing:"0.5px"}}>VOICE CAL  v1.1</p>
+    </Sheet>
   );
 }
 
@@ -402,17 +487,20 @@ function SettingsModal({ apiKey, onClose, onUpdateKey, onClearAll }) {
 const TABS = [{id:"today",lbl:"Today"},{id:"week",lbl:"Week"},{id:"month",lbl:"Month"},{id:"inbox",lbl:"Inbox"}];
 
 function App() {
-  const [apiKey,  setApiKey]  = useState(()=>localStorage.getItem("vc_key")||"");
-  const [notes,   setNotes]   = useState(()=>{ try{return JSON.parse(localStorage.getItem("vc_notes")||"[]");}catch{return[];} });
-  const [page,    setPage]    = useState("home");
-  const [tab,     setTab]     = useState("today");
-  const [showAdd, setShowAdd] = useState(false);
-  const [calNote, setCalNote] = useState(null);
-  const [showSet, setShowSet] = useState(false);
+  const [apiKey,   setApiKey]   = useState(()=>{ try{return localStorage.getItem("vc_key")||"";}catch{return "";} });
+  const [notes,    setNotes]    = useState(()=>{ try{return JSON.parse(localStorage.getItem("vc_notes")||"[]");}catch{return[];} });
+  const [page,     setPage]     = useState("home");
+  const [tab,      setTab]      = useState("today");
+  const [showAdd,  setShowAdd]  = useState(false);
+  const [calNote,  setCalNote]  = useState(null);
+  const [editNote, setEditNote] = useState(null);
+  const [showSet,  setShowSet]  = useState(false);
 
-  const saveKey = k => { localStorage.setItem("vc_key",k); setApiKey(k); };
-  const persist = next => { setNotes(next); localStorage.setItem("vc_notes",JSON.stringify(next)); };
-  const addNote  = p => persist([{...p,id:Date.now().toString(),period:classifyPeriod(p.dueDate),completed:false,addedToCalendar:false,createdAt:new Date().toISOString()},...notes]);
+  const saveKey  = k  => { try { localStorage.setItem("vc_key",k); } catch {} setApiKey(k); };
+  const persist  = nx => { setNotes(nx); localStorage.setItem("vc_notes",JSON.stringify(nx)); };
+  // FIX: pass recurrence to classifyPeriod
+  const addNote  = p  => persist([{...p,id:Date.now().toString(),period:classifyPeriod(p.dueDate,p.recurrence),completed:false,addedToCalendar:false,createdAt:new Date().toISOString()},...notes]);
+  const updateNote = u => persist(notes.map(n=>n.id===u.id?u:n));
   const toggle   = id => persist(notes.map(n=>n.id===id?{...n,completed:!n.completed}:n));
   const del      = id => persist(notes.filter(n=>n.id!==id));
   const markCal  = id => { persist(notes.map(n=>n.id===id?{...n,addedToCalendar:true}:n)); setCalNote(null); };
@@ -427,6 +515,8 @@ function App() {
     inbox: notes.filter(n=>!n.completed&&!isLate(n)&&n.period==="inbox"),
   };
   const done = notes.filter(n=>n.completed), current = bucket[tab]||[];
+
+  const cardProps = { onToggle:toggle, onDelete:del, onCalendar:setCalNote, onEdit:setEditNote };
 
   return (
     <div style={{maxWidth:440,margin:"0 auto",minHeight:"100dvh",background:C.bg}}>
@@ -450,13 +540,13 @@ function App() {
             <button onClick={()=>setShowSet(true)} style={{width:34,height:34,borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,cursor:"pointer",color:C.t2,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>⚙</button>
           </div>
         </div>
+
         {page==="home"&&(
           <div style={{display:"flex"}}>
             {TABS.map(t=>{
               const cnt=bucket[t.id]?.length||0, active=tab===t.id;
               return <button key={t.id} className="vc-tab" onClick={()=>setTab(t.id)} style={{flex:1,padding:"10px 4px 11px",background:"none",cursor:"pointer",borderTop:"none",borderLeft:"none",borderRight:"none",borderBottom:`2px solid ${active?C.acc:"transparent"}`,color:active?C.t1:C.t2,fontWeight:active?700:500,fontSize:12,letterSpacing:"0.2px",display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"color .15s"}}>
-                {t.lbl}
-                {cnt>0&&<span style={{background:active?C.acc:C.t3,color:active?"#fff":C.t2,borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{cnt}</span>}
+                {t.lbl}{cnt>0&&<span style={{background:active?C.acc:C.t3,color:active?"#fff":C.t2,borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{cnt}</span>}
               </button>;
             })}
           </div>
@@ -469,15 +559,15 @@ function App() {
           {current.length===0&&(
             <div style={{textAlign:"center",padding:"64px 0"}}>
               <div style={{width:48,height:48,borderRadius:12,background:C.card,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,margin:"0 auto 16px"}}>{tab==="today"?"✦":tab==="inbox"?"◻":"◈"}</div>
-              <p style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6,letterSpacing:"-0.2px"}}>{tab==="today"?"Nothing scheduled today":tab==="inbox"?"Inbox empty":`No ${tab} tasks`}</p>
+              <p style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>{tab==="today"?"Nothing scheduled today":tab==="inbox"?"Inbox empty":`No ${tab} tasks`}</p>
               <p style={{fontSize:12,color:C.t3}}>Press + to add a note or task</p>
             </div>
           )}
-          {current.map(n=><NoteCard key={n.id} note={n} onToggle={toggle} onDelete={del} onCalendar={setCalNote}/>)}
+          {current.map(n=><NoteCard key={n.id} note={n} {...cardProps}/>)}
           {done.length>0&&(
             <details style={{marginTop:24}}>
               <summary style={{fontSize:10,color:C.t3,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",cursor:"pointer",padding:"4px 2px",marginBottom:10,listStyle:"none"}}>▸ COMPLETED ({done.length})</summary>
-              {done.map(n=><NoteCard key={n.id} note={n} onToggle={toggle} onDelete={del} onCalendar={setCalNote}/>)}
+              {done.map(n=><NoteCard key={n.id} note={n} {...cardProps}/>)}
             </details>
           )}
         </>}
@@ -487,17 +577,17 @@ function App() {
             <p style={{fontSize:14,fontWeight:600,color:C.t1,marginBottom:6}}>All caught up</p>
             <p style={{fontSize:12,color:C.t3}}>No overdue tasks.</p>
           </div>
-        ):lateNotes.map(n=><NoteCard key={n.id} note={n} onToggle={toggle} onDelete={del} onCalendar={setCalNote}/>))}
+        ):lateNotes.map(n=><NoteCard key={n.id} note={n} {...cardProps}/>))}
       </div>
 
       {/* FAB */}
-      <button className="vc-fab" onClick={()=>setShowAdd(true)} style={{position:"fixed",bottom:72,right:20,width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.accL},${C.acc})`,border:"none",cursor:"pointer",zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#fff",boxShadow:`0 0 20px ${C.accGlow}`,transition:"all .2s"}}>+</button>
+      <button className="vc-fab" onClick={()=>setShowAdd(true)} style={{position:"fixed",bottom:72,right:20,width:56,height:56,borderRadius:"50%",background:`linear-gradient(135deg,${C.accL},${C.acc})`,border:"none",cursor:"pointer",zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,color:"#fff",boxShadow:`0 0 20px ${C.accGlow}`,transition:"all .2s"}}>+</button>
 
       {/* Bottom Nav */}
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:440,background:C.bg,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:40}}>
         {[{id:"home",icon:"⊞",lbl:"Notes"},{id:"late",icon:"◎",lbl:"Late",badge:lateNotes.length}].map(item=>(
           <button key={item.id} onClick={()=>setPage(item.id)} style={{flex:1,padding:"13px 0 11px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-            <span style={{fontSize:18,position:"relative",display:"inline-block",opacity:page===item.id?1:0.35,filter:page===item.id?`drop-shadow(0 0 6px ${C.accGlow})`:"none",color:page===item.id?C.accL:C.t2,transition:"all .2s"}}>
+            <span style={{fontSize:20,position:"relative",display:"inline-block",opacity:page===item.id?1:0.35,filter:page===item.id?`drop-shadow(0 0 6px ${C.accGlow})`:"none",color:page===item.id?C.accL:C.t2,transition:"all .2s"}}>
               {item.icon}
               {item.badge>0&&<span style={{position:"absolute",top:-5,right:-8,background:C.red,color:"#fff",borderRadius:10,fontSize:8,fontWeight:800,padding:"1px 4px",minWidth:14,textAlign:"center",lineHeight:"13px"}}>{item.badge}</span>}
             </span>
@@ -507,9 +597,10 @@ function App() {
         <div style={{flex:1}}/>
       </div>
 
-      {showAdd&&<AddModal onClose={()=>setShowAdd(false)} onSave={n=>{addNote(n);setShowAdd(false);}} apiKey={apiKey}/>}
-      {calNote&&<CalModal note={calNote} onClose={()=>setCalNote(null)} onMarked={()=>markCal(calNote.id)}/>}
-      {showSet&&<SettingsModal apiKey={apiKey} onClose={()=>setShowSet(false)} onUpdateKey={saveKey} onClearAll={()=>persist([])}/>}
+      {showAdd  && <AddModal  onClose={()=>setShowAdd(false)}  onSave={n=>{addNote(n);setShowAdd(false);}} apiKey={apiKey}/>}
+      {calNote  && <CalModal  onClose={()=>setCalNote(null)}   onMarked={()=>markCal(calNote.id)} note={calNote}/>}
+      {editNote && <EditModal onClose={()=>setEditNote(null)}  onSave={updateNote} onDelete={del} onCalendar={setCalNote} note={editNote}/>}
+      {showSet  && <SettingsModal apiKey={apiKey} onClose={()=>setShowSet(false)} onUpdateKey={saveKey} onClearAll={()=>persist([])}/>}
     </div>
   );
 }
